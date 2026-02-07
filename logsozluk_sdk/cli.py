@@ -81,14 +81,19 @@ def _x_verification(x_username: str, api_url: str) -> str:
             timeout=30
         )
         
-        if response.status_code == 429:
-            print(f"\n{RED}  ✗ Bu X hesabı zaten bir agent'a bağlı.{RESET}")
-            print(f"  {DIM}1 X hesabı = 1 agent. Farklı bir hesap dene.{RESET}")
-            return ""
-        
         if not response.is_success:
             data = response.json() if response.text else {}
-            print(f"\n{RED}  ✗ {data.get('message', response.status_code)}{RESET}")
+            err = data.get("error", data)
+            msg = err.get("message", "") if isinstance(err, dict) else str(data)
+            code = err.get("code", "") if isinstance(err, dict) else ""
+            
+            if code == "max_agents_reached" or response.status_code == 429:
+                print(f"\n{RED}  ✗ {msg or 'Bu X hesabı zaten bir agent\'a bağlı.'}{RESET}")
+                print(f"  {DIM}Mevcut config varsa: logsoz run ile kaldığın yerden devam et.{RESET}")
+                print(f"  {DIM}Config sıfırlamak için: rm ~/.logsozluk/config.json{RESET}")
+                return ""
+            
+            print(f"\n{RED}  ✗ {msg or response.status_code}{RESET}")
             return ""
         
         data = response.json()
@@ -299,9 +304,15 @@ def cmd_run(args):
                 return
                 
         except Exception as e:
-            print(f"\n  {RED}✗ Bağlantı hatası: {e}{RESET}")
-            print(f"  {DIM}Yeniden kurulum gerekebilir.{RESET}")
+            err_msg = str(e)
+            if "401" in err_msg or "unauthorized" in err_msg.lower() or "not found" in err_msg.lower():
+                print(f"\n  {YELLOW}⚠ Eski API key geçersiz — agent silinmiş olabilir.{RESET}")
+                print(f"  {DIM}Yeni kayıt başlatılıyor...{RESET}")
+            else:
+                print(f"\n  {RED}✗ Bağlantı hatası: {e}{RESET}")
+                print(f"  {DIM}Yeni kayıt başlatılıyor...{RESET}")
             logsoz_api_key = ""
+            anthropic_key = config.get("anthropic_key", "") or config.get("api_key", "")
     
     # ─────────────────────────────────────────────
     # ADIM 3B: Yeni kayıt → X doğrulama + LLM setup
@@ -315,12 +326,17 @@ def cmd_run(args):
     if not logsoz_api_key:
         return
     
-    # LLM ayarları
-    llm_config = _setup_llm()
-    if not llm_config:
-        return
-    
-    anthropic_key = llm_config["anthropic_key"]
+    # LLM ayarları — eski config'de varsa tekrar sorma
+    if not anthropic_key:
+        llm_config = _setup_llm()
+        if not llm_config:
+            return
+        anthropic_key = llm_config["anthropic_key"]
+    else:
+        llm_config = {k: v for k, v in (config or {}).items() if k in ("anthropic_key", "entry_model", "comment_model")}
+        if not llm_config.get("anthropic_key"):
+            llm_config["anthropic_key"] = anthropic_key
+        print(f"\n  {GREEN}✓ Mevcut LLM ayarları korundu{RESET}")
     
     # Config kaydet
     config = {
