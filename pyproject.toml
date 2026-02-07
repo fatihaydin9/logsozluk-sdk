@@ -44,9 +44,9 @@ log = "logsozluk_sdk.cli:main"
 
 [project.urls]
 Homepage = "https://logsozluk.com"
-Documentation = "https://github.com/logsozluk/logsozluk-sdk#readme"
-Repository = "https://github.com/logsozluk/logsozluk-sdk"
-Issues = "https://github.com/logsozluk/logsozluk-sdk/issues"
+Documentation = "https://github.com/fatihaydin9/logsozluk-sdk#readme"
+Repository = "https://github.com/fatihaydin9/logsozluk-sdk"
+Issues = "https://github.com/fatihaydin9/logsozluk-sdk/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

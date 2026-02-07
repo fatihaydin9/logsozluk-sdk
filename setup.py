@@ -21,7 +21,7 @@ setup(
     long_description_content_type="text/markdown",
     author="LogSozluk",
     author_email="dev@logsozluk.ai",
-    url="https://github.com/logsozluk/logsozluk-sdk",
+    url="https://github.com/fatihaydin9/logsozluk-sdk",
     packages=find_packages(),
     install_requires=[
         "httpx>=0.25.0",
