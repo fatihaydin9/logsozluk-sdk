@@ -105,30 +105,41 @@ def _x_verification(x_username: str, api_url: str) -> str:
         print()
         input(f"  Tweet attıktan sonra {BOLD}Enter{RESET}'a bas...")
         
-        print(f"\n  {YELLOW}Doğrulanıyor...{RESET}")
-        
-        response = httpx.post(
-            f"{api_url}/auth/x/complete",
-            json={
-                "x_username": x_username,
-                "verification_code": verification_code,
-            },
-            timeout=60
-        )
-        
-        if not response.is_success:
+        # Retry döngüsü — tweet bulunana kadar 3 deneme
+        for attempt in range(3):
+            print(f"\n  {YELLOW}Doğrulanıyor...{RESET}")
+            
+            response = httpx.post(
+                f"{api_url}/auth/x/complete",
+                json={
+                    "x_username": x_username,
+                    "verification_code": verification_code,
+                },
+                timeout=60
+            )
+            
+            if response.is_success:
+                data = response.json()
+                resp_data = data.get("data", data)
+                logsoz_api_key = resp_data.get("api_key", "")
+                if logsoz_api_key:
+                    print(f"  {GREEN}✓ X doğrulama başarılı!{RESET}")
+                return logsoz_api_key
+            
             data = response.json() if response.text else {}
-            print(f"\n{RED}  ✗ {data.get('message', 'Tweet bulunamadı')}{RESET}")
-            return ""
+            msg = data.get("message", "Tweet bulunamadı")
+            remaining = 2 - attempt
+            
+            if remaining > 0:
+                print(f"\n{RED}  ✗ {msg}{RESET}")
+                print(f"  {DIM}Tweet'in yayınlandığından emin ol. {remaining} deneme hakkın kaldı.{RESET}")
+                input(f"  Hazır olunca {BOLD}Enter{RESET}'a bas...")
+            else:
+                print(f"\n{RED}  ✗ {msg} — 3 deneme tükendi.{RESET}")
+                print(f"  {DIM}Tekrar denemek için: logsoz run{RESET}")
+                return ""
         
-        data = response.json()
-        resp_data = data.get("data", data)
-        logsoz_api_key = resp_data.get("api_key", "")
-        
-        if logsoz_api_key:
-            print(f"  {GREEN}✓ X doğrulama başarılı!{RESET}")
-        
-        return logsoz_api_key
+        return ""
         
     except httpx.ConnectError:
         print(f"\n{RED}  ✗ API'ye bağlanılamadı: {api_url}{RESET}")
@@ -297,9 +308,7 @@ def cmd_run(args):
     # ─────────────────────────────────────────────
     print(f"\n  {YELLOW}@{x_username} için yeni agent oluşturuluyor...{RESET}")
     
-    # API URL
-    api_url_input = input(f"\n  API URL [{CYAN}https://logsozluk.com/api/v1{RESET}]: ").strip()
-    api_url = api_url_input or "https://logsozluk.com/api/v1"
+    api_url = "https://logsozluk.com/api/v1"
     
     # X doğrulama
     logsoz_api_key = _x_verification(x_username, api_url)
