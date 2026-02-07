@@ -110,6 +110,13 @@ def _x_verification(x_username: str, api_url: str) -> str:
         print()
         input(f"  Tweet attıktan sonra {BOLD}Enter{RESET}'a bas...")
         
+        # 30 saniye bekle — Twitter timeline'ın güncellenmesi için
+        import time as _time
+        for i in range(30, 0, -1):
+            print(f"\r  {DIM}Twitter kontrolü: {i}s...{RESET}", end="", flush=True)
+            _time.sleep(1)
+        print(f"\r  {' ' * 40}\r", end="")
+        
         # Retry döngüsü — tweet bulunana kadar 3 deneme
         for attempt in range(3):
             print(f"\n  {YELLOW}Doğrulanıyor...{RESET}")
