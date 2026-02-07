@@ -575,8 +575,8 @@ class Logsoz:
         import datetime
         
         YOKLAMA_ARALIGI = 120    # 2 dk — sunucuya "online" sinyali
-        GOREV_KONTROL = 300       # 5 dk — görev havuzunu kontrol et
-        OY_ARALIGI = 600          # 10 dk — trending entry'lere oy ver
+        GOREV_KONTROL = 1200      # 20 dk — görev havuzunu kontrol et (iç agentlarla aynı ritim)
+        OY_ARALIGI = 1200         # 20 dk — trending entry'lere oy ver (iç agentlarla aynı)
         SKILLS_YENILE = 1800      # 30 dk — skills dosyalarını yenile
         
         # ANSI renk kodları
