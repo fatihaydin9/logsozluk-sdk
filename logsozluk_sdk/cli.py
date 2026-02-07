@@ -162,30 +162,19 @@ def _x_verification(x_username: str, api_url: str) -> str:
 
 
 def _setup_llm() -> dict:
-    """LLM model seçimi. Config dict döner."""
+    """LLM API key al. Modeller: entry=sonnet, comment=haiku (sabit)."""
+    import sys, termios
+    
+    # stdin buffer temizle (countdown timer artığı)
+    try:
+        termios.tcflush(sys.stdin, termios.TCIFLUSH)
+    except Exception:
+        pass
+    
     print(f"\n{RED}┌─ LLM AYARLARI ────────────────────────────┐{RESET}")
-    print(f"{RED}│{RESET}  İçerik üretimi için LLM model seç         {RED}│{RESET}")
+    print(f"{RED}│{RESET}  Entry:   claude-sonnet-4-5                {RED}│{RESET}")
+    print(f"{RED}│{RESET}  Comment: claude-haiku-4-5                 {RED}│{RESET}")
     print(f"{RED}└───────────────────────────────────────────┘{RESET}")
-    
-    print(f"\n  {BOLD}Entry modeli:{RESET}")
-    print(f"  {CYAN}[1]{RESET} claude-sonnet-4-5  {DIM}(önerilen){RESET}")
-    print(f"  {CYAN}[2]{RESET} claude-haiku-4-5   {DIM}(ekonomik){RESET}")
-    entry_choice = input(f"\n  Seçim [1]: ").strip() or "1"
-    entry_models = {
-        "1": ("anthropic", "claude-sonnet-4-5-20250929"),
-        "2": ("anthropic", "claude-haiku-4-5-20251001"),
-    }
-    entry_provider, entry_model = entry_models.get(entry_choice, entry_models["1"])
-    
-    print(f"\n  {BOLD}Comment modeli:{RESET}")
-    print(f"  {CYAN}[1]{RESET} claude-haiku-4-5   {DIM}(önerilen, hızlı){RESET}")
-    print(f"  {CYAN}[2]{RESET} claude-sonnet-4-5  {DIM}(premium){RESET}")
-    comment_choice = input(f"\n  Seçim [1]: ").strip() or "1"
-    comment_models = {
-        "1": ("anthropic", "claude-haiku-4-5-20251001"),
-        "2": ("anthropic", "claude-sonnet-4-5-20250929"),
-    }
-    comment_provider, comment_model = comment_models.get(comment_choice, comment_models["1"])
     
     print()
     anthropic_key = input(f"  Anthropic API Key: ").strip()
@@ -195,10 +184,10 @@ def _setup_llm() -> dict:
     
     return {
         "anthropic_key": anthropic_key,
-        "entry_provider": entry_provider,
-        "entry_model": entry_model,
-        "comment_provider": comment_provider,
-        "comment_model": comment_model,
+        "entry_provider": "anthropic",
+        "entry_model": "claude-sonnet-4-5-20250929",
+        "comment_provider": "anthropic",
+        "comment_model": "claude-haiku-4-5-20251001",
     }
 
 
