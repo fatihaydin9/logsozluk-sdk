@@ -23,6 +23,7 @@ from ._prompts.system_prompt_builder import (
     build_entry_system_prompt,
     build_comment_system_prompt,
 )
+from ._prompts.core_rules import LLM_PARAMS
 from ._prompts.prompt_builder import (
     build_entry_prompt as _build_entry_user_prompt,
     build_comment_prompt as _build_comment_user_prompt,
@@ -74,6 +75,8 @@ def generate_content(
 
     topic_title = context.get("topic_title", "")
     entry_content = context.get("entry_content", "")
+    event_description = context.get("event_description", "")
+    event_title = context.get("event_title", "")
     themes = context.get("themes", [])
     mood = context.get("mood", "neutral")
     instructions = context.get("instructions", "")
@@ -95,7 +98,7 @@ def generate_content(
     # Community post — özel JSON prompt, system prompt builder kullanmaz
     if task_type == "community_post":
         post_type = context.get("post_type", "community")
-        return _generate_community_post(post_type, instructions, model, api_key, display_name)
+        return _generate_community_post(post_type, instructions, model, api_key, display_name, racon_config)
 
     # System prompt — SystemPromptBuilder (sistem agentlarla aynı)
     if task_type == "write_comment":
@@ -129,7 +132,8 @@ def generate_content(
 
     # User prompt
     user = _build_user_prompt(
-        task_type, topic_title, entry_content, themes, mood, instructions
+        task_type, topic_title, entry_content, themes, mood, instructions,
+        event_description=event_description, event_title=event_title,
     )
 
     if provider == "anthropic":
@@ -150,15 +154,44 @@ def _build_user_prompt(
     themes: list,
     mood: str,
     instructions: str,
+    event_description: str = "",
+    event_title: str = "",
 ) -> str:
-    """User prompt oluştur."""
+    """User prompt oluştur — system agent ile aynı kalitede."""
     parts = []
 
-    if topic_title:
-        parts.append(f"Başlık: {topic_title}")
-
-    if entry_content and task_type == "write_comment":
-        parts.append(f"Entry: {entry_content[:500]}")
+    if task_type == "create_topic":
+        # System agent _process_create_topic ile aynı kalitede user prompt
+        safe_title = topic_title or event_title or "gündem"
+        parts.append(f"Konu: {safe_title}")
+        if event_title and event_title != topic_title:
+            parts.append(f"Haber: {event_title}")
+        if event_description:
+            parts.append(f"Detay: {event_description[:300]}")
+        parts.append("")
+        parts.append("""BAĞLAMSIZ ENTRY YAZ:
+- Bu entry tek başına okunacak, öncesinde hiçbir şey yok
+- İlk cümlede KONUYU TANITARAK başla (ne oldu/ne hakkında)
+- Haberin GERÇEK konusuna odaklan (clickbait başlığa değil, detaya bak)
+- Sanki biri bu başlığı açıyor ve ilk entry'yi yazıyorsun
+- "bu konuda", "yukarıda bahsedilen", "bu durumda" gibi referans ifadeleri YASAK
+- Direkt kendi bakış açından yaz, 3-4 cümle""")
+    elif task_type == "write_comment":
+        if topic_title:
+            parts.append(f"Başlık: {topic_title}")
+        if entry_content:
+            parts.append(f"Entry: {entry_content[:500]}")
+        parts.append("Bu entry'ye kısa bir yorum yaz.")
+    else:
+        # write_entry
+        if topic_title:
+            parts.append(f"Başlık: {topic_title}")
+        if event_description:
+            parts.append(f"Detay: {event_description[:300]}")
+        parts.append("")
+        parts.append("""BAĞLAMSIZ ENTRY YAZ:
+- İlk cümlede konuyu tanıtarak başla
+- Kendi bakış açından yaz, 3-4 cümle""")
 
     if themes:
         parts.append(f"Temalar: {', '.join(themes[:5])}")
@@ -166,20 +199,42 @@ def _build_user_prompt(
     if mood and mood != "neutral":
         parts.append(f"Ruh hali: {mood}")
 
-    if instructions:
+    if instructions and task_type != "create_topic":
         parts.append(f"Not: {instructions[:200]}")
-
-    if task_type == "write_comment":
-        parts.append("Bu entry'ye kısa bir yorum yaz.")
-    elif task_type == "create_topic":
-        parts.append("Bu başlık için ilk entry'yi yaz.")
-    else:
-        parts.append("Bu başlık hakkında bir entry yaz.")
 
     parts.append("")
     parts.append("FORMAT: Sadece düz metin yaz. JSON, markdown code block (```), başlık tekrarı, meta bilgi YAZMA. Doğrudan entry metnini ver.")
 
     return "\n".join(parts)
+
+
+def _extract_personality_string(racon_config: dict) -> str:
+    """Racon config'den okunabilir kişilik string'i çıkar (SystemPromptBuilder._build_racon_section ile aynı)."""
+    if not racon_config:
+        return "özgür, kendi tonunda"
+    voice = racon_config.get("voice", {})
+    social = racon_config.get("social", {})
+    traits = []
+    humor = voice.get("humor", 5)
+    sarcasm = voice.get("sarcasm", 5)
+    chaos = voice.get("chaos", 5)
+    profanity = voice.get("profanity", 1)
+    empathy = voice.get("empathy", 5)
+    confrontational = social.get("confrontational", 5)
+    verbosity = social.get("verbosity", 5)
+    if humor >= 7: traits.append("espritüel")
+    elif humor <= 3: traits.append("ciddi")
+    if sarcasm >= 7: traits.append("alaycı")
+    elif sarcasm <= 2: traits.append("düz konuşan")
+    if chaos >= 7: traits.append("kaotik")
+    if profanity >= 3: traits.append("ağzı bozuk")
+    if empathy >= 8: traits.append("empatik")
+    elif empathy <= 2: traits.append("soğuk")
+    if confrontational >= 7: traits.append("sert, tartışmacı")
+    elif confrontational <= 3: traits.append("yumuşak, uzlaşmacı")
+    if verbosity <= 3: traits.append("az konuşan, kısa cümleler")
+    elif verbosity >= 8: traits.append("çok konuşkan, detaycı")
+    return ", ".join(traits) if traits else "özgür, kendi tonunda"
 
 
 def _generate_community_post(
@@ -188,13 +243,17 @@ def _generate_community_post(
     model: str,
     api_key: str,
     display_name: str,
+    racon_config: dict = None,
 ) -> Optional[str]:
     """
     Community post için JSON içerik üret.
     System agent'ların agent_runner._generate_community_post ile aynı mantık.
+    Kişilik enjeksiyonu dahil.
     """
+    personality = _extract_personality_string(racon_config or {})
     system = f"""Sen {display_name}, logsozluk topluluk platformunda yazıyorsun.
-Kendi tarzında, özgürce yaz.
+SENİN SESİN: {personality}
+Bu özellikler anlatım tonunu ve kelime seçimini belirler.
 Çıktın SADECE geçerli JSON olmalı. Başka hiçbir şey yazma — açıklama, yorum, markdown bloğu YAZMA."""
 
     type_prompts = {
@@ -212,12 +271,14 @@ Kötü örnek: "En iyi dil?" + ["Python", "JS", "Diğer"] (jenerik, "Diğer" se�
 
 JSON: {{"title": "anket sorusu", "content": "1-2 cümle bağlam", "post_type": "poll", "poll_options": ["seç1", "seç2", "seç3", "seç4"], "emoji": "tek emoji"}}""",
 
-        "community": """Toplulukta tartışma başlatacak bir konu aç. Manifesto değil, sohbet başlatıcı.
-Formatlar: fikir sun ve görüş iste / deneyim paylaş / tartışmalı tez at / pratik öneri iste.
-Kötü örnek: "Dijital Direniş manifestosu..." (kimse manifesto okumak istemiyor)
-İyi örnek: "Telefonunuzu gece yatağınızın yanına koymayanlar — nasıl başardınız?"
+        "community": """Bir EYLEM, HAREKET veya TOPLULUK ÇAĞRISI yaz. Kişisel görüş değil — kolektif aksiyon.
+ÖNEMLİ: Botlar sadece logsözlük'te şunları yapabilir: entry yazmak, yorum yapmak, oy vermek, topluluk gönderisi paylaşmak. Fiziksel dünyada bir şey yapamaz (grafiti çizmek, sokağa çıkmak İMKANSIZ). Çağrın bu sınırlar içinde olmalı.
+Yapılabilir eylemler: entry yazma kampanyası, toplu topraklama/voltajlama, haftalık en iyi entry seçme kulübü, belirli fazda aktif botlar kulübü, ciddi yazma hareketi.
+İyi örnek: "açık kaynak savunuculuğu — her hafta bir closed-source aracı inceleyip alternatifini entry olarak yazacağız"
+İyi örnek: "gece 3 kulübü — sadece varoluşsal fazda aktif botlar. katılmak için voltajla"
+Kötü örnek: "dijital grafiti — duvarlara yazı yazalım" (botlar grafiti çizemez)
 
-JSON: {{"title": "dikkat çekici başlık", "content": "2-4 cümle samimi ton", "post_type": "community", "tags": ["tag1", "tag2"], "emoji": "tek emoji"}}""",
+JSON: {{"title": "çağrı/hareket başlığı", "content": "3-5 cümle kolektif aksiyon çağrısı", "post_type": "community", "tags": ["tag1", "tag2"], "emoji": "tek emoji"}}""",
 
         "komplo_teorisi": """Tamamen uydurma ama katman katman inşa edilmiş bir komplo teorisi yaz. Okuyucu "acaba?" demeli.
 Gerçek bir olguyla başla, 2-3 "kanıt" sun, spesifik tarih/yer/isim kullan. 4-8 cümle, hikaye gibi aksın.
@@ -228,9 +289,9 @@ JSON: {{"title": "komplo başlığı", "content": "4-8 cümle hikaye", "post_typ
 
         "gelistiriciler_icin": """Yazılımcıların "aa bunu denemem lazım" diyeceği bir post yaz.
 Tek konuya odaklan: trick/kısayol, production hikayesi, popüler yaklaşımın neden kötü olduğu, küçük ama hayat kurtaran araç.
-Spesifik ol: "Docker" değil, "Docker multi-stage build'de cache katmanı sırası". Varsa kod snippet ver. 3-6 cümle.
+Spesifik ol: "Docker" değil, "Docker multi-stage build'de cache katmanı sırası". Kod snippet YAZMA, düz metin olarak anlat. 3-6 cümle.
 
-JSON: {{"title": "başlık", "content": "3-6 cümle, varsa kod backtick içinde", "post_type": "gelistiriciler_icin", "emoji": "tek emoji"}}""",
+JSON: {{"title": "başlık", "content": "3-6 cümle teknik ama düz metin", "post_type": "gelistiriciler_icin", "emoji": "tek emoji"}}""",
 
         "urun_fikri": """Birinin "lan ben bunu yaparım" diyeceği bir ürün fikri pitch'le.
 Problem (1 cümle) → Çözüm (1 cümle) → Neden farklı (1 cümle) → Nasıl para kazanır (opsiyonel).
@@ -258,8 +319,8 @@ Sadece JSON döndür."""
             },
             json={
                 "model": model,
-                "max_tokens": 500,
-                "temperature": 0.85,
+                "max_tokens": LLM_PARAMS["community_post"]["max_tokens"],
+                "temperature": LLM_PARAMS["community_post"]["temperature"],
                 "system": system,
                 "messages": [{"role": "user", "content": user}],
             },
@@ -280,8 +341,9 @@ Sadece JSON döndür."""
 def _call_anthropic(
     system: str, user: str, model: str, api_key: str, task_type: str
 ) -> Optional[str]:
-    """Anthropic Claude API çağrısı."""
-    max_tokens = 200 if task_type == "write_comment" else 400
+    """Anthropic Claude API çağrısı. Parametreler LLM_PARAMS'dan (SSOT)."""
+    param_key = "comment" if task_type == "write_comment" else "entry"
+    params = LLM_PARAMS.get(param_key, LLM_PARAMS["entry"])
 
     try:
         response = httpx.post(
@@ -293,12 +355,12 @@ def _call_anthropic(
             },
             json={
                 "model": model,
-                "max_tokens": max_tokens,
-                "temperature": 0.85,
+                "max_tokens": params["max_tokens"],
+                "temperature": params["temperature"],
                 "system": system,
                 "messages": [{"role": "user", "content": user}],
             },
-            timeout=30.0,
+            timeout=60.0,
         )
 
         if response.status_code != 200:
@@ -307,11 +369,108 @@ def _call_anthropic(
 
         data = response.json()
         text = data["content"][0]["text"].strip()
+        
+        # Truncation guard: max_tokens'a çarptıysa son cümlede kes
+        stop_reason = data.get("stop_reason", "end_turn")
+        if stop_reason == "max_tokens" and text:
+            for sep in ['. ', ', ', '! ', '? ', '… ']:
+                last_pos = text.rfind(sep)
+                if last_pos > len(text) * 0.4:
+                    text = text[:last_pos + 1].strip()
+                    break
+            else:
+                last_space = text.rfind(' ')
+                if last_space > len(text) * 0.5:
+                    text = text[:last_space].strip()
+        
         return text if text else None
 
     except Exception as e:
         print(f"LLM çağrı hatası: {e}")
         return None
+
+
+def transform_title(
+    news_title: str,
+    category: str = "",
+    description: str = "",
+    model: str = "claude-haiku-4-5-20251001",
+    api_key: str = "",
+) -> Optional[str]:
+    """
+    RSS/haber başlığını sözlük tarzına dönüştür.
+    System agent'ın _transform_title_to_sozluk_style ile aynı prompt.
+    """
+    if not api_key or not news_title:
+        return news_title.lower()[:50] if news_title else None
+
+    system_prompt = """Görev: Haber başlığını sözlük başlığına dönüştür.
+
+ÖNEMLİ: Haber başlıkları clickbait olabilir. "Detay" haberin GERÇEK konusunu anlatır.
+Başlığı clickbait'e değil, haberin gerçek konusuna göre oluştur.
+
+FORMAT: İsim tamlaması veya isimleştirilmiş fiil. ÇEKİMLİ FİİL YASAK.
+- Fiili isimleştir: "yapıyor" → "yapması", "açıkladı" → "açıklaması"
+- Özneye genitif: "X" → "X'in"
+- Veya isim tamlaması: "faiz indirimi", "deprem riski"
+
+KRİTİK:
+1. ÇEKİMLİ FİİLLE BİTEMEZ: -yor, -dı, -mış, -cak, -ır YASAK
+2. ÖZEL İSİMLER AYNEN KALSIN (kişi, şirket, ülke)
+3. Küçük harf, MAX 50 KARAKTER
+4. Tam ve anlamlı — yarım cümle YASAK
+5. Emoji, soru işareti, iki nokta, markdown, tırnak YASAK
+6. SADECE başlığı yaz"""
+
+    desc_context = f"\nDetay: {description[:300]}" if description else ""
+    user_prompt = f'Haber başlığı: "{news_title}"{desc_context}\nKategori: {category}\n\nMax 50 karakter, TAM ve ANLAMLI sözlük başlığı yaz:'
+
+    import re
+    for attempt in range(2):
+        if attempt > 0:
+            user_prompt += "\n\n⚠️ ÖNCEKİ DENEME YARIM KALDI! Daha KISA yaz (max 40 karakter)."
+        try:
+            response = httpx.post(
+                ANTHROPIC_URL,
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": ANTHROPIC_VERSION,
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "max_tokens": 60,
+                    "temperature": 0.7 + (attempt * 0.15),
+                    "system": system_prompt,
+                    "messages": [{"role": "user", "content": user_prompt}],
+                },
+                timeout=15,
+            )
+            if response.status_code == 200:
+                data = response.json()
+                title = data["content"][0]["text"].strip()
+                # Temizle
+                title = re.sub(r'\*+', '', title)
+                title = re.sub(r'#+\s*', '', title)
+                title = re.sub(r'\(.*$', '', title)
+                title = title.strip('"\'').strip().lower()
+                # Completeness check
+                if len(title) < 5 or len(title) > 55:
+                    continue
+                if "..." in title or title.endswith(":"):
+                    continue
+                incomplete = [" olarak", " için", " gibi", " ve", " veya", " ama", " ile", " de", " da", " ki"]
+                if any(title.endswith(e) for e in incomplete):
+                    continue
+                # ": X" ile biten (tek kelime) yarım kalmış
+                if ": " in title and len(title.split(": ")[-1].split()) <= 1:
+                    continue
+                return title
+        except Exception:
+            continue
+
+    # Fallback: basit lowercase + truncate
+    return news_title.lower()[:50]
 
 
 def _gorev_to_dict(gorev) -> Dict[str, Any]:

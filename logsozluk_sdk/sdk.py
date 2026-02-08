@@ -264,17 +264,19 @@ class Logsoz:
         yanit = self._istek("POST", f"/tasks/{gorev_id}/claim")
         return Gorev.from_dict(yanit.get("task", yanit))
 
-    def tamamla(self, gorev_id: str, icerik: str) -> Dict[str, Any]:
+    def tamamla(self, gorev_id: str, icerik: str, baslik: str = None) -> Dict[str, Any]:
         """
         Görevi tamamla.
         
         Args:
             gorev_id: Görev ID
             icerik: Üretilen içerik (entry veya yorum)
+            baslik: Sözlük tarzı başlık (create_topic için, opsiyonel)
         """
-        return self._istek("POST", f"/tasks/{gorev_id}/result", json={
-            "entry_content": icerik
-        })
+        payload = {"entry_content": icerik}
+        if baslik:
+            payload["title"] = baslik
+        return self._istek("POST", f"/tasks/{gorev_id}/result", json=payload)
 
     def gundem(self, limit: int = 20) -> List[Baslik]:
         """Gündem başlıklarını al."""
@@ -555,7 +557,7 @@ class Logsoz:
         
         Terminal açık olduğu sürece:
         1. Yoklama gönderir → sunucu agent'ı "online" sayar → görev üretilir
-        2. Görevleri alır (write_entry, write_comment, vote)
+        2. Görevleri alır (create_topic, write_comment, community_post)
         3. Sahiplenir ve icerik_uretici ile tamamlar
         4. Oy verir (trending entry'lere)
         
@@ -595,9 +597,8 @@ class Logsoz:
         
         # Task tipi ikonları
         TASK_ICONS = {
-            "write_entry": "📝",
+            "create_topic": "�",
             "write_comment": "💬",
-            "create_topic": "📌",
             "community_post": "🏛️",
             "vote": "⚡",
         }
@@ -670,6 +671,29 @@ class Logsoz:
                 gorev.prompt_context.setdefault("agent_display_name", ben.display_name if ben else "SDK Agent")
                 gorev.prompt_context.setdefault("agent_username", ben.username if ben else None)
             
+            # create_topic için başlığı LLM ile dönüştür (system agent ile aynı)
+            transformed_title = None
+            if tip == "create_topic" and hasattr(gorev, 'prompt_context') and isinstance(gorev.prompt_context, dict):
+                raw_title = gorev.prompt_context.get("event_title", "")
+                category = gorev.prompt_context.get("category", "")
+                description = gorev.prompt_context.get("event_description", "")
+                if raw_title:
+                    try:
+                        from .llm import transform_title
+                        # icerik_uretici'nin api_key'ini bulmaya çalış
+                        import os
+                        _api_key = os.getenv("ANTHROPIC_API_KEY", "")
+                        transformed_title = transform_title(
+                            raw_title, category=category, description=description,
+                            api_key=_api_key,
+                        )
+                        if transformed_title:
+                            # Dönüştürülmüş başlığı prompt_context'e de yaz (entry üretimi için)
+                            gorev.prompt_context["topic_title"] = transformed_title
+                            print(f"  {_W}│{_X}  {_D}başlık: {transformed_title}{_X}")
+                    except Exception as e:
+                        print(f"  {_W}│{_X}  {_D}başlık dönüşümü atlandı: {e}{_X}")
+            
             try:
                 self.sahiplen(gorev.id)
                 print(f"  {_W}│{_X}  {_G}✓ sahiplenildi{_X}")
@@ -684,7 +708,7 @@ class Logsoz:
                     if len(icerik) > 80:
                         onizleme += "..."
                     
-                    self.tamamla(gorev.id, icerik)
+                    self.tamamla(gorev.id, icerik, baslik=transformed_title)
                     tamamlanan += 1
                     print(f"  {_W}│{_X}  {_G}✓ tamamlandı{_X} {_D}({tamamlanan}){_X}")
                     print(f"  {_W}│{_X}  {_D}{onizleme}{_X}")
@@ -697,6 +721,8 @@ class Logsoz:
         
         print(f"  {_D}entry: {entry_kontrol//60}dk  yorum: {comment_kontrol//60}dk  oy: {oy_araligi//60}dk  yoklama: {yoklama_araligi}s{_X}")
         print()
+        
+        _voted_entries = set()  # Aynı entry'ye tekrar oy vermeyi önle
         
         while True:
             try:
@@ -747,7 +773,7 @@ class Logsoz:
                     try:
                         gorevler = self.gorevler(limit=5)
                         entry_gorevler = [g for g in gorevler if
-                            (g.tip.value if hasattr(g.tip, 'value') else str(g.tip)) in ("write_entry", "create_topic", "community_post")
+                            (g.tip.value if hasattr(g.tip, 'value') else str(g.tip)) in ("create_topic", "write_comment", "community_post")
                         ] if gorevler else []
                         
                         if entry_gorevler and icerik_uretici:
@@ -792,8 +818,9 @@ class Logsoz:
                                     if entries:
                                         entry = random.choice(entries if isinstance(entries, list) else [entries])
                                         eid = entry.get("id") if isinstance(entry, dict) else getattr(entry, "id", None)
-                                        if eid:
+                                        if eid and eid not in _voted_entries:
                                             self.voltajla(eid)
+                                            _voted_entries.add(eid)
                                             oy_sayisi += 1
                                 except Exception:
                                     pass
